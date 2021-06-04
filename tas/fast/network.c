@@ -220,6 +220,23 @@ void network_dump_stats(void)
 
 #define IP_STRING	"%hhu.%hhu.%hhu.%hhu"
 
+#define LE_IP_FMT(ip)   ((uint8_t *)&(ip))[3], \
+					    ((uint8_t *)&(ip))[2], \
+ 					    ((uint8_t *)&(ip))[1], \
+				        ((uint8_t *)&(ip))[0]
+
+#define BE_IP_FMT(ip)   ((uint8_t *)&(ip))[0], \
+					    ((uint8_t *)&(ip))[1], \
+ 					    ((uint8_t *)&(ip))[2], \
+				        ((uint8_t *)&(ip))[3]
+
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+#	define HOST_IP_FMT(ip)	LE_IP_FMT(ip)
+#elif __BYTE_ORDER == __BIG_ENDIAN
+#	define HOST_IP_FMT(ip)	BE_IP_FMT(ip)
+#endif
+
+
 #define FULL_IP_MASK   0xffffffff /* full mask */
 #define EMPTY_IP_MASK  0x0 /* empty mask */
 
@@ -405,6 +422,7 @@ int network_thread_init(struct dataplane_context *ctx)
       }
     }
 
+    struct rte_flow * flow;
     struct rte_flow_error error;
     for (int i = 0; i < num_threads; i++) {
       uint32_t saddr = 0;
