@@ -430,19 +430,19 @@ int network_thread_init(struct dataplane_context *ctx)
       uint16_t sport = 0;
       uint16_t dport = (i + 1) << 12;
         
-      fprintf(stdout, " [%s] create flow rule: between " IP_STRING ":%x and " IP_STRING ":%x by queue %d on port %d", 
+      fprintf(stdout, " [%s] create flow rule: between " IP_STRING ":%x and " IP_STRING ":%x by queue %d on port %d\n", 
               __func__, HOST_IP_FMT(saddr), sport, HOST_IP_FMT(daddr), dport, i, net_port_id);
 
       flow = create_ingress_flow(net_port_id, i, saddr, EMPTY_IP_MASK, daddr, EMPTY_IP_MASK, 
                                 sport, EMPTY_PORT_MASK, dport, PART_PORT_MASK, &error);
       if (!flow) {
 	      if (rte_errno != EEXIST) {
-          fprintf(stdout, " [%s] Flow can't be created %d message: %s", 
+          fprintf(stdout, " [%s] Flow can't be created %d message: %s\n", 
                           __func__, error.type, error.message ? error.message : "(no stated reason)");
           exit(1);
                 }
     	} else {
-          fprintf(stdout, " [%s] insert flow rule: from " IP_STRING ":%x to " IP_STRING ":%x by queue %d on port %d", 
+          fprintf(stdout, " [%s] insert flow rule: from " IP_STRING ":%x to " IP_STRING ":%x by queue %d on port %d\n", 
                           __func__, HOST_IP_FMT(saddr), sport & EMPTY_PORT_MASK, HOST_IP_FMT(daddr), dport & PART_PORT_MASK, i, net_port_id);
       }
     }
