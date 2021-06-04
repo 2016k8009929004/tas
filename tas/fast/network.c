@@ -48,6 +48,8 @@
 #define TX_DESCRIPTORS 128
 
 uint8_t net_port_id = 0;
+/* @yyh: rte_flow configuration */
+#if 0
 static struct rte_eth_conf port_conf = {
     .rxmode = {
       .mq_mode = ETH_MQ_RX_RSS,
@@ -69,6 +71,14 @@ static struct rte_eth_conf port_conf = {
       .rxq = 1,
     },
   };
+#else
+struct rte_eth_conf port_conf = {
+    .rxmode = {
+    	.mq_mode        = ETH_MQ_RX_NONE,
+		.split_hdr_size = 0,
+	},
+};
+#endif
 
 static unsigned num_threads;
 static struct network_rx_thread **net_threads;
@@ -208,6 +218,115 @@ void network_dump_stats(void)
   }
 }
 
+#define FULL_IP_MASK   0xffffffff /* full mask */
+#define EMPTY_IP_MASK  0x0 /* empty mask */
+
+#define FULL_PORT_MASK   0xffff /* full mask */
+#define PART_PORT_MASK   0xf000 /* partial mask */
+#define EMPTY_PORT_MASK  0x0 /* empty mask */
+
+#define MAX_PATTERN_NUM		4
+#define MAX_ACTION_NUM		2
+
+/**
+ * create a flow rule that sends packets with matching src and dest ip
+ * to selected queue.
+ *
+ * @param port_id
+ *   The selected port.
+ * @param rx_q
+ *   The selected target queue.
+ * @param src_ip
+ *   The src ip value to match the input packet.
+ * @param src_mask
+ *   The mask to apply to the src ip.
+ * @param dest_ip
+ *   The dest ip value to match the input packet.
+ * @param dest_mask
+ *   The mask to apply to the dest ip.
+ * @param[out] error
+ *   Perform verbose error reporting if not NULL.
+ *
+ * @return
+ *   A flow if the rule could be created else return NULL.
+ */
+struct rte_flow *
+create_ingress_flow(uint16_t port_id, uint16_t rx_q,
+		uint32_t src_ip, uint32_t src_ip_mask, uint32_t dest_ip, uint32_t dest_ip_mask,
+        uint16_t src_port, uint16_t src_port_mask, uint16_t dest_port, uint16_t dest_port_mask,
+		struct rte_flow_error *error)
+{
+	struct rte_flow_attr attr;
+	struct rte_flow_item pattern[MAX_PATTERN_NUM];
+	struct rte_flow_action action[MAX_ACTION_NUM];
+	struct rte_flow *flow = NULL;
+	struct rte_flow_action_queue queue = { .index = rx_q };
+	struct rte_flow_item_ipv4 ip_spec;
+	struct rte_flow_item_ipv4 ip_mask;
+    struct rte_flow_item_tcp tcp_spec;
+    struct rte_flow_item_tcp tcp_mask;
+	int res;
+
+	memset(pattern, 0, sizeof(pattern));
+	memset(action, 0, sizeof(action));
+
+	/*
+	 * set the rule attribute.
+	 * in this case only ingress packets will be checked.
+	 */
+	memset(&attr, 0, sizeof(struct rte_flow_attr));
+	attr.ingress = 1;
+
+	/*
+	 * create the action sequence.
+	 * one action only,  move packet to queue
+	 */
+	action[0].type = RTE_FLOW_ACTION_TYPE_QUEUE;
+	action[0].conf = &queue;
+	action[1].type = RTE_FLOW_ACTION_TYPE_END;
+
+	/*
+	 * set the first level of the pattern (ETH).
+	 */
+	pattern[0].type = RTE_FLOW_ITEM_TYPE_ETH;
+
+	/*
+	 * setting the second level of the pattern (IP).
+	 */
+	memset(&ip_spec, 0, sizeof(struct rte_flow_item_ipv4));
+	memset(&ip_mask, 0, sizeof(struct rte_flow_item_ipv4));
+	ip_spec.hdr.dst_addr = htonl(dest_ip);
+	ip_mask.hdr.dst_addr = htonl(dest_ip_mask);
+	ip_spec.hdr.src_addr = htonl(src_ip);
+	ip_mask.hdr.src_addr = htonl(src_ip_mask);
+	pattern[1].type = RTE_FLOW_ITEM_TYPE_IPV4;
+	pattern[1].spec = &ip_spec;
+	pattern[1].mask = &ip_mask;
+
+    /*
+	 * setting the third level of the pattern (TCP).
+	 */
+	memset(&tcp_spec, 0, sizeof(struct rte_flow_item_tcp));
+	memset(&tcp_mask, 0, sizeof(struct rte_flow_item_tcp));
+	tcp_spec.hdr.dst_port = htons(dest_port);
+	tcp_mask.hdr.dst_port = htons(dest_port_mask);
+	tcp_spec.hdr.src_port = htons(src_port);
+	tcp_mask.hdr.src_port = htons(src_port_mask);
+	pattern[2].type = RTE_FLOW_ITEM_TYPE_TCP;
+	pattern[2].spec = &tcp_spec;
+	pattern[2].mask = &tcp_mask;
+
+	/* the final level must be always type end */
+	pattern[3].type = RTE_FLOW_ITEM_TYPE_END;
+
+	res = rte_flow_validate(port_id, &attr, pattern, action, error);
+	if (!res) {
+        flow = rte_flow_create(port_id, &attr, pattern, action, error);
+    }
+
+	return flow;
+}
+
 int network_thread_init(struct dataplane_context *ctx)
 {
   static volatile uint32_t tx_init_done = 0;
@@ -254,6 +373,13 @@ int network_thread_init(struct dataplane_context *ctx)
 
   /* start device if this ìs core 0 */
   if (ctx->id == 0) {
+    /* @yyh: enable promiscuous */
+    if (rte_eth_promiscuous_enable(net_port_id) != 0) {
+      fprintf(stderr, "rte_eth_promiscuous_enable failed\n");
+      goto error_tx_queue;
+    }
+    /* end */
+
     if (rte_eth_dev_start(net_port_id) != 0) {
       fprintf(stderr, "rte_eth_dev_start failed\n");
       goto error_tx_queue;
@@ -276,6 +402,31 @@ int network_thread_init(struct dataplane_context *ctx)
         goto error_tx_queue;
       }
     }
+
+    struct rte_flow_error error;
+    for (int i = 0; i < num_threads; i++) {
+      uint32_t saddr = 0;
+      uint32_t daddr = 0;
+      uint16_t sport = 0;
+      uint16_t dport = (i + 1) << 12;
+        
+      fprintf(stdout, " [%s] create flow rule: between " IP_STRING ":%x and " IP_STRING ":%x by queue %d on port %d", 
+              __func__, HOST_IP_FMT(saddr), sport, HOST_IP_FMT(daddr), dport, i, net_port_id);
+
+      flow = create_ingress_flow(net_port_id, i, saddr, EMPTY_IP_MASK, daddr, EMPTY_IP_MASK, 
+                                sport, EMPTY_PORT_MASK, dport, PART_PORT_MASK, &error);
+      if (!flow) {
+	      if (rte_errno != EEXIST) {
+          fprintf(stdout, " [%s] Flow can't be created %d message: %s", 
+                          __func__, error.type, error.message ? error.message : "(no stated reason)");
+          exit(1);
+                }
+    	} else {
+          fprintf(stdout, " [%s] insert flow rule: from " IP_STRING ":%x to " IP_STRING ":%x by queue %d on port %d", 
+                          __func__, HOST_IP_FMT(saddr), sport & EMPTY_PORT_MASK, HOST_IP_FMT(daddr), dport & PART_PORT_MASK, i, net_port_id);
+      }
+    }
+
     start_done = 1;
   }
 
