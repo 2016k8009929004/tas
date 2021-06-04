@@ -218,6 +218,8 @@ void network_dump_stats(void)
   }
 }
 
+#define IP_STRING	"%hhu.%hhu.%hhu.%hhu"
+
 #define FULL_IP_MASK   0xffffffff /* full mask */
 #define EMPTY_IP_MASK  0x0 /* empty mask */
 
