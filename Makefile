@@ -25,7 +25,7 @@ INCDIR ?= $(PREFIX)/include
 # Prefix for dpdk
 RTE_SDK ?= /usr/
 # Mellanox support
-MLX5 := n
+MLX5 := y
 # mpdts to compile
 DPDK_PMDS ?= ixgbe i40e tap virtio
 ifeq ($(MLX5), y)
