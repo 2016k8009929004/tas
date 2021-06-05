@@ -33,8 +33,8 @@ ifeq ($(MLX5), y)
 endif
 
 DPDK_CPPFLAGS += -I$(RTE_SDK)/include -I$(RTE_SDK)/include/dpdk \
-  -I$(RTE_SDK)/include/x86_64-linux-gnu/dpdk/
-DPDK_LDFLAGS+= -L$(RTE_SDK)/lib/
+  -I$(RTE_SDK)/include/x86_64-linux-gnu/dpdk/ -I$(RTE_SDK)/$(RTE_TARGET)/include 
+DPDK_LDFLAGS+= -L$(RTE_SDK)/lib/ -L$(RTE_SDK)/$(RTE_TARGET)/lib/
 DPDK_LDLIBS+= \
   -Wl,--whole-archive \
    $(addprefix -lrte_pmd_,$(DPDK_PMDS)) \
