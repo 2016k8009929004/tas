@@ -511,7 +511,7 @@ static void conn_packet(struct connection *c, const struct pkt_tcp *p,
     * why necessary*/
     send_control(c, TCP_ACK, 1, 0, 0);
   } else {
-    fprintf(stderr, "tcp_packet: unexpected connection state %u\n", c->status);
+    fprintf(stderr, "tcp_packet: unexpected connection state %u on core %d, tcp src port %d, dst port: %d\n", c->status, rte_lcore_id(), p->tcp.src, p->tcp.dest);
   }
 }
 
